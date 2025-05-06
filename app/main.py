@@ -21,11 +21,30 @@ async def on_message(message):
             bet_amount = int(parts[1])
             bet_type = parts[2]
             if bet_amount > 0:
-                await message.channel.send(f"Roulette started with a bet of {bet_amount} coins on {bet_type}!")
+                # Embedメッセージの作成（正常動作時）
+                embed = discord.Embed(
+                    title="Roulette Start!",
+                    description=f"Bet Amount: {bet_amount} coins\nBet Type: {bet_type}",
+                    color=discord.Color.blue()
+                )
+                await message.channel.send(embed=embed)
             else:
-                await message.channel.send("Please enter a valid bet amount.")
+                # Embedメッセージの作成（エラー時）
+                embed = discord.Embed(
+                    title="Error",
+                    description="Please enter a valid bet amount.",
+                    color=discord.Color.red()
+                )
+                await message.channel.send(embed=embed)
         else:
-            await message.channel.send("Invalid command. Usage: /roulette <bet_amount> <even/odd>")
+            # Embedメッセージの作成（コマンド形式が無効な場合）
+            embed = discord.Embed(
+                title="Error",
+                description="Invalid command. Usage: /roulette <amount> <even/odd>",
+                color=discord.Color.red()
+            )
+
+        await message.channel.send(embed=embed)
 
 server_thread()
 client.run(TOKEN)
