@@ -15,7 +15,7 @@ async def on_message(message):
     if message.author == client.user:
         return
 
-    if message.content.startswith('/roulette'):
+    if message.content.startswith('$roulette'):
         parts = message.content.split()
         if len(parts) == 3 and parts[1].isdigit() and parts[2] in ['even', 'odd']:
             bet_amount = int(parts[1])
@@ -40,7 +40,7 @@ async def on_message(message):
             # Embedメッセージの作成（コマンド形式が無効な場合）
             embed = discord.Embed(
                 title="Error",
-                description="Invalid command. Usage: /roulette <amount> <even/odd>",
+                description="Invalid command. Usage: $roulette <amount> <even/odd>",
                 color=discord.Color.red()
             )
 
