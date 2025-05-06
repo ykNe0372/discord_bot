@@ -43,8 +43,7 @@ async def on_message(message):
                 description="Invalid command. Usage: $roulette <amount> <even/odd>",
                 color=discord.Color.red()
             )
-
-        await message.channel.send(embed=embed)
+            await message.channel.send(embed=embed)
 
 server_thread()
 client.run(TOKEN)
