@@ -1,5 +1,6 @@
 import discord
 import os
+import random
 import dotenv
 from server import server_thread
 dotenv.load_dotenv()
@@ -28,6 +29,13 @@ async def on_message(message):
                     color=discord.Color.blue()
                 )
                 await message.channel.send(embed=embed)
+
+                result = random.randint(0, 36)
+                result_type = 'even' if result % 2 == 0 else 'odd'
+                if result_type == bet_type:
+                    await message.channel.send(f"Result: {result}. You win! You got {bet_amount * 2} coins!")
+                else:
+                    await message.channel.send(f"Result: {result}. You lose... You lost {bet_amount} coins.")
             else:
                 # Embedメッセージの作成（エラー時）
                 embed = discord.Embed(
