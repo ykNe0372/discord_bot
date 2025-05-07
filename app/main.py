@@ -93,7 +93,7 @@ async def balance_all(interaction: discord.Interaction):
 
 # スラッシュコマンド: /roulette
 @bot.tree.command(name="roulette", description="Play roulette. Usage: /roulette <amount> <option> <number>")
-@app_commands.describe(amount="The amount to bet", option="Choose your bet option", number="Choose a number between 0 and 36 (only for 'Number')")
+@app_commands.describe(amount="The amount to bet (or type 'all' to bet all your coins)", option="Choose your bet option", number="Choose a number between 0 and 36 (only for 'Number')")
 @app_commands.choices(
     option=[
         app_commands.Choice(name="Even", value="even"),
@@ -106,25 +106,37 @@ async def balance_all(interaction: discord.Interaction):
         app_commands.Choice(name="Number", value="number"),
     ]
 )
-async def roulette(interaction: discord.Interaction, amount: int, option: app_commands.Choice[str], number: int = None):
+async def roulette(interaction: discord.Interaction, amount: str, option: app_commands.Choice[str], number: int = None):
     # 入力の検証
     if option.value == "number" and (number is None or number < 0 or number > 36):
         await interaction.response.send_message("Please specify a valid number between 0 and 36 after selecting 'Number'.", ephemeral=True)
-        return
-
-    if amount <= 0:
-        await interaction.response.send_message("Please enter a valid bet amount.", ephemeral=True)
         return
 
     user_id = interaction.user.id
     if user_id not in user_balances:
         user_balances[user_id] = 0  # 所持金が未設定の場合は0に初期化
 
+    # "all"が指定された場合、所持金全額を賭ける
+    if amount.lower() == "all":
+        amount = user_balances[user_id]
+        if amount <= 0:
+            await interaction.response.send_message("You don't have any coins to bet.", ephemeral=True)
+            return
+    else:
+        try:
+            amount = int(amount)
+        except ValueError:
+            await interaction.response.send_message("Please enter a valid number for the bet amount.", ephemeral=True)
+            return
+    if amount <= 0:
+        await interaction.response.send_message("Please enter a valid bet amount.", ephemeral=True)
+        return
+
     # 賭け金が所持金を超えている場合の警告を追加
-    if user_balances[user_id] < amount:
-        await interaction.response.send_message(
-            f"Warning: You are betting more than your current balance ({user_balances[user_id]} coins). Your balance will go negative if you lose.",
-            ephemeral=True
+    if user_balances[user_id] >= 0 and user_balances[user_id] < amount:
+        channel = interaction.channel
+        await channel.send(
+            f"{interaction.user.mention}\nWarning: You are betting more than your current balance ({user_balances[user_id]} coins). Your balance will go negative if you lose."
         )
 
     # Embedメッセージで賭け情報を送信
