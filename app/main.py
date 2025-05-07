@@ -8,7 +8,7 @@ from server import server_thread
 
 load_dotenv()
 
-TOKEN = os.getenv.get('TOKEN')
+TOKEN = os.environ.get('TOKEN')
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
