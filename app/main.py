@@ -8,7 +8,7 @@ from server import server_thread
 
 load_dotenv()
 
-TOKEN = os.environ.get('TOKEN')
+# TOKEN = os.environ.get('TOKEN')
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
@@ -117,9 +117,15 @@ async def roulette(interaction: discord.Interaction, amount: int, option: app_co
         return
 
     user_id = interaction.user.id
-    if user_id not in user_balances or user_balances[user_id] < amount:
-        await interaction.response.send_message("You don't have enough coins to bet.", ephemeral=True)
-        return
+    if user_id not in user_balances:
+        user_balances[user_id] = 0  # 所持金が未設定の場合は0に初期化
+
+    # 賭け金が所持金を超えている場合の警告を追加
+    if user_balances[user_id] < amount:
+        await interaction.response.send_message(
+            f"Warning: You are betting more than your current balance ({user_balances[user_id]} coins). Your balance will go negative if you lose.",
+            ephemeral=True
+        )
 
     # Embedメッセージで賭け情報を送信
     embed_description = f"Bet Amount: {amount} coins\nBet Option: {option.name}"
@@ -134,6 +140,9 @@ async def roulette(interaction: discord.Interaction, amount: int, option: app_co
     embed.set_author(name=interaction.user.name, icon_url=interaction.user.avatar.url)
     await interaction.response.send_message(embed=embed)
 
+    # 賭けた分を先に減らす
+    user_balances[user_id] -= amount
+
     # ルーレットの結果を計算
     result = random.randint(0, 36)
     result_type = "even" if result % 2 == 0 else "odd"
@@ -144,7 +153,6 @@ async def roulette(interaction: discord.Interaction, amount: int, option: app_co
             user_balances[user_id] += amount * 36
             result_message = f"The roulette landed on {result}.\nYOU WIN! The number matched! You gained {amount * 36} coins.\n\n{interaction.user.name} now have {user_balances[user_id]} coins."
         else:
-            user_balances[user_id] -= amount
             result_message = f"The roulette landed on {result}.\nYOU LOSE... The number didn't match. You lost {amount} coins.\n\n{interaction.user.name} now have {user_balances[user_id]} coins."
     elif option.value == "small" and 1 <= result <= 12:
         user_balances[user_id] += amount * 3
@@ -162,10 +170,10 @@ async def roulette(interaction: discord.Interaction, amount: int, option: app_co
         user_balances[user_id] += amount * 2
         result_message = f"The roulette landed on {result}.\nYOU WIN! The range matched! You gained {amount * 2} coins.\n\n{interaction.user.name} now have {user_balances[user_id]} coins."
     elif option.value == "even" and result_type == "even":
-        user_balances[user_id] += amount
+        user_balances[user_id] += amount * 2
         result_message = f"The roulette landed on {result} ({result_type}).\nYOU WIN! You gained {amount} coins.\n\n{interaction.user.name} now have {user_balances[user_id]} coins."
     elif option.value == "odd" and result_type == "odd":
-        user_balances[user_id] += amount
+        user_balances[user_id] += amount * 2
         result_message = f"The roulette landed on {result} ({result_type}).\nYOU WIN! You gained {amount} coins.\n\n{interaction.user.name} now have {user_balances[user_id]} coins."
     else:
         result_message = f"The roulette landed on {result}.\nYOU LOSE... You lost {amount} coins.\n\n{interaction.user.name} now have {user_balances[user_id]} coins."
@@ -173,7 +181,7 @@ async def roulette(interaction: discord.Interaction, amount: int, option: app_co
     # 通常のメッセージで結果を送信
     await interaction.followup.send(result_message)
 
-server_thread()
-bot.run(TOKEN)
+# server_thread()
+# bot.run(TOKEN)
 
 bot.run(os.getenv('TOKEN'))
