@@ -4,9 +4,11 @@ from discord.ext import commands
 import os
 import random
 from dotenv import load_dotenv
+from server import server_thread
 
 load_dotenv()
 
+TOKEN = os.getenv.get('TOKEN')
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
@@ -170,5 +172,8 @@ async def roulette(interaction: discord.Interaction, amount: int, option: app_co
 
     # 通常のメッセージで結果を送信
     await interaction.followup.send(result_message)
+
+server_thread()
+bot.run(TOKEN)
 
 bot.run(os.getenv('TOKEN'))
