@@ -45,7 +45,7 @@ async def balance(interaction: discord.Interaction, user: discord.Member = None)
         balance = user_balances[user_id]
         embed = discord.Embed(
             title="Balance",
-            description=f"{target_user.name} has {balance} coins.",
+            description=f"{target_user.name} has {"<:casino_tip:1369502280096682015>"} {balance}.",
             color=discord.Color.green()
         )
         embed.set_author(name=target_user.name, icon_url=target_user.avatar.url)
@@ -80,14 +80,22 @@ async def balance_all(interaction: discord.Interaction):
 
     # 名前と所持金を整列
     max_name_length = max(len(name) for name, _ in balances)  # 名前の最大長を取得
-    formatted_balances = [f"{name:<{max_name_length}} : {balance} coins" for name, balance in balances]
+
+    balances = sorted(balances, key=lambda x: x[1], reverse=True)  # 所持金でソート
 
     # Embedメッセージで出力
     embed = discord.Embed(
         title="All Members' Balances",
-        description=f"```\n" + "\n".join(formatted_balances) + "\n```",  # コードブロックで囲む
         color=discord.Color.blue()
     )
+
+    for name, balance in balances:
+        embed.add_field(
+            name=name,
+            value=f"<:casino_tip:1369502280096682015> {balance} coins",
+            inline=False
+        )
+
     embed.set_footer(text=f"Requested by {interaction.user.name}", icon_url=interaction.user.avatar.url)
     await interaction.response.send_message(embed=embed)
 
