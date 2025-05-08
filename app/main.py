@@ -4,6 +4,7 @@ from discord.ext import commands
 import os
 import random
 from dotenv import load_dotenv
+from datetime import datetime, timedelta, timezone
 from server import server_thread
 
 load_dotenv()
@@ -13,10 +14,18 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 
+JST = timezone(timedelta(hours=+9))
+
 bot = commands.Bot(command_prefix="/", intents=intents)
 
 # ユーザーの所持金を管理する辞書
 user_balances = {}
+
+# ユーザーの日次報酬の最終受取日時を管理する辞書
+last_daily_claim = {}
+
+# ユーザーの日次報酬の受け取り回数を管理する辞書
+daily_claim_count = {}
 
 @bot.event
 async def on_ready():
@@ -32,6 +41,52 @@ async def on_ready():
     for guild in bot.guilds:
         for member in guild.members:
             user_balances[member.id] = 200
+
+# スラッシュコマンド: /help
+
+
+# スラッシュコマンド: /daily
+@bot.tree.command(name="daily", description="Claim your daily reward.")
+async def daily(interaction: discord.Interaction):
+    user_id = interaction.user.id
+    now = datetime.now(JST)
+
+    # 最後の受取日時を取得
+    if user_id in last_daily_claim:
+        last_claim_time = last_daily_claim[user_id]
+        if last_claim_time.date() == now.date():
+            embed = discord.Embed(
+                title="Daily Reward",
+                description="You have already claimed your daily reward today.",
+                color=discord.Color.red()
+            )
+            embed.set_author(name=interaction.user.name, icon_url=interaction.user.avatar.url)
+            await interaction.response.send_message(embed=embed)
+            return
+
+    # 日次報酬の基本額
+    base_reward = 100
+
+    if daily_claim_count.get(user_id, 0) % 7 == 6:
+        base_reward += 100
+        interaction.channel.send(
+            f"{interaction.user.mention} has claimed their daily reward for the 7th time!\nThey received an extra 100 coins!"
+        )
+
+    # 日次報酬を付与
+    user_balances[user_id] = user_balances.get(user_id, 0) + base_reward
+    last_daily_claim[user_id] = now  # 最終受取日時を更新
+
+    # 日次報酬の受け取り回数を更新
+    daily_claim_count[user_id] = daily_claim_count.get(user_id, 0) + 1
+
+    embed = discord.Embed(
+        title="Daily Reward",
+        description=f"You have claimed your daily reward of 100 coins!\nYou now have {user_balances[user_id]} coins.",
+        color=discord.Color.green()
+    )
+    embed.set_author(name=interaction.user.name, icon_url=interaction.user.avatar.url)
+    await interaction.response.send_message(embed=embed)
 
 # スラッシュコマンド: /balance
 @bot.tree.command(name="balance", description="Check your balance or another user's balance.")
@@ -191,10 +246,10 @@ async def roulette(interaction: discord.Interaction, amount: str, option: app_co
         result_message = f"The roulette landed on {result}.\nYOU WIN! The range matched! You gained {amount * 2} coins.\n\n{interaction.user.name} now have {user_balances[user_id]} coins."
     elif option.value == "even" and result_type == "even":
         user_balances[user_id] += amount * 2
-        result_message = f"The roulette landed on {result} ({result_type}).\nYOU WIN! You gained {amount} coins.\n\n{interaction.user.name} now have {user_balances[user_id]} coins."
+        result_message = f"The roulette landed on {result} ({result_type}).\nYOU WIN! You gained {amount * 2} coins.\n\n{interaction.user.name} now have {user_balances[user_id]} coins."
     elif option.value == "odd" and result_type == "odd":
         user_balances[user_id] += amount * 2
-        result_message = f"The roulette landed on {result} ({result_type}).\nYOU WIN! You gained {amount} coins.\n\n{interaction.user.name} now have {user_balances[user_id]} coins."
+        result_message = f"The roulette landed on {result} ({result_type}).\nYOU WIN! You gained {amount * 2} coins.\n\n{interaction.user.name} now have {user_balances[user_id]} coins."
     else:
         result_message = f"The roulette landed on {result}.\nYOU LOSE... You lost {amount} coins.\n\n{interaction.user.name} now have {user_balances[user_id]} coins."
 
