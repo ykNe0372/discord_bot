@@ -208,7 +208,7 @@ async def roulette(interaction: discord.Interaction, amount: str, option: app_co
     if user_balances[user_id] >= 0 and user_balances[user_id] < amount:
         channel = interaction.channel
         await channel.send(
-            f"{interaction.user.mention}\nWarning: You are betting more than your current balance <:casino_tip2:1369628815709569044>({user_balances[user_id]}).\nYour balance will go negative if you lose."
+            f"{interaction.user.mention}\nWarning: You are betting more than your current balance <:casino_tip2:1369628815709569044> {user_balances[user_id]}.\nYour balance will go negative if you lose."
         )
 
     # Embedメッセージで賭け情報を送信
