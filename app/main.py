@@ -23,6 +23,39 @@ last_daily_claim = {}  # ユーザーの日次報酬の最終受取日時を管�
 daily_claim_count = {} # ユーザーの日次報酬の受け取り回数を管理する辞書
 last_rob_attempt = {}  # ユーザーの最後の強奪実行日時を管理する辞書
 
+blackjack_games = {}   # ブラックジャックのゲーム状態を管理する辞書
+
+# ==============================================================================================
+
+# ブラックジャック用のカードデッキを生成する関数
+def create_deck():
+    suits = ['♠', '♥', '♦', '♣']
+    ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
+    return [f"{rank}{suit}" for suit in suits for rank in ranks]
+
+# ----------------------------------------------------------------------------------------------
+
+# カードの値を計算する関数
+def calculate_hand_value(hand):
+    value = 0
+    aces = 0
+    for card in hand:
+        rank = card[:-1]  # カードのランク部分を取得
+        if rank in ['J', 'Q', 'K']:
+            value += 10
+        elif rank == 'A':
+            value += 11
+            aces += 1
+        else:
+            value += int(rank)
+    # Aを1として扱う場合の調整
+    while value > 21 and aces:
+        value -= 10
+        aces -= 1
+    return value
+
+# ==============================================================================================
+
 @bot.event
 async def on_ready():
     print(f'Logged in as {bot.user}')
@@ -38,12 +71,12 @@ async def on_ready():
         for member in guild.members:
             user_balances[member.id] = 2000
 
-# ----------------------------------------------------------------------------------------------
+# ==============================================================================================
 
 # スラッシュコマンド: /help
 
 
-# ----------------------------------------------------------------------------------------------
+# ==============================================================================================
 
 # スラッシュコマンド: /daily
 @bot.tree.command(name="daily", description="Claim your daily reward.")
@@ -88,7 +121,7 @@ async def daily(interaction: discord.Interaction):
     embed.set_author(name=interaction.user.name, icon_url=interaction.user.avatar.url)
     await interaction.response.send_message(embed=embed)
 
-# ----------------------------------------------------------------------------------------------
+# ==============================================================================================
 
 # スラッシュコマンド: /give
 @bot.tree.command(name="give", description="Give coins to another user.")
@@ -217,7 +250,7 @@ async def rob(interaction: discord.Interaction):
     # 最後の実行日時を更新
     last_rob_attempt[robber_id] = now
 
-# ----------------------------------------------------------------------------------------------
+# ==============================================================================================
 
 # スラッシュコマンド: /balance
 @bot.tree.command(name="balance", description="Check your balance or another user's balance.")
@@ -284,7 +317,7 @@ async def balance_all(interaction: discord.Interaction):
     embed.set_footer(text=f"Requested by {interaction.user.name}", icon_url=interaction.user.avatar.url)
     await interaction.response.send_message(embed=embed)
 
-# ----------------------------------------------------------------------------------------------
+# ==============================================================================================
 
 # スラッシュコマンド: /roulette
 @bot.tree.command(name="roulette", description="Play roulette. Usage: /roulette <amount> <option> <number>")
@@ -401,6 +434,314 @@ async def roulette(interaction: discord.Interaction, amount: str, option: app_co
     await interaction.followup.send(result_message)
 
 # ----------------------------------------------------------------------------------------------
+
+# スラッシュコマンド: /blackjack
+@bot.tree.command(name="blackjack", description="Play blackjack. Usage: /blackjack <amount>")
+@app_commands.describe(amount="The amount to bet (or type 'all' to bet all your coins)")
+async def blackjack(interaction: discord.Interaction, amount: str):
+    user_id = interaction.user.id
+    if user_id not in user_balances:
+        user_balances[user_id] = 0  # 所持金が未設定の場合は0に初期化
+
+    user_id = interaction.user.id
+    if user_id not in user_balances:
+        user_balances[user_id] = 0  # 所持金が未設定の場合は0に初期化
+
+    # 賭け金の検証
+    max_bet = 5000 if user_balances[user_id] >= 0 else 500
+
+    # "all"が指定された場合、所持金全額を賭ける
+    if amount.lower() == "all":
+        amount = user_balances[user_id]
+        if amount <= 0:
+            await interaction.response.send_message("You don't have any coins to bet.", ephemeral=True)
+            return
+    else:
+        try:
+            amount = int(amount)
+        except ValueError:
+            await interaction.response.send_message("Please enter a valid number for the bet amount.", ephemeral=True)
+            return
+
+    if amount <= 0:
+        await interaction.response.send_message("Please enter a valid bet amount.", ephemeral=True)
+        return
+
+    # all以外の時に、賭け金が最大賭け金を超えている場合
+    if amount != user_balances[user_id] and amount > max_bet:
+        await interaction.response.send_message(f"Your bet amount exceeds the maximum limit of <:casino_tip2:1369628815709569044> {max_bet}.", ephemeral=True)
+        return
+
+    # 賭け金が所持金を超えている場合の警告を追加
+    if user_balances[user_id] >= 0 and user_balances[user_id] < amount:
+        channel = interaction.channel
+        await channel.send(
+            f"{interaction.user.mention}\nWarning: You are betting more than your current balance <:casino_tip2:1369628815709569044> {user_balances[user_id]}.\nYour balance will go negative if you lose."
+        )
+
+    # デッキを作成してシャッフル
+    deck = create_deck()
+    random.shuffle(deck)
+
+    # プレイヤーとディーラーの手札を配る
+    player_hand = [deck.pop(), deck.pop()]
+    dealer_hand = [deck.pop(), deck.pop()]
+
+    # ゲーム状態を保存
+    blackjack_games[user_id] = {
+        "deck": deck,
+        "player_hand": player_hand,
+        "dealer_hand": dealer_hand,
+        "bet": amount,
+        "double_down_allowed": True  # ダブルダウンが可能かどうかを示すフラグ
+    }
+
+    # ナチュラル21の判定
+    player_value = calculate_hand_value(player_hand)
+    dealer_value = calculate_hand_value(dealer_hand)
+
+    if player_value == 21:
+        if dealer_value == 21:
+            # 引き分け
+            embed = discord.Embed(
+                title="Blackjack - It's a Draw!",
+                description=(
+                    f"**Your Hand**: {', '.join(player_hand)} (Value: 21)\n"
+                    f"**Dealer's Hand**: {', '.join(dealer_hand)} (Value: 21)\n\n"
+                    "It's a draw! Your balance remains the same.\n"
+                    f"Your new balance is <:casino_tip2:1369628815709569044> {user_balances[user_id]} coins."
+                ),
+                color=discord.Color.orange()
+            )
+            await interaction.response.send_message(embed=embed)
+            del blackjack_games[user_id]  # ゲームを終了
+            return
+        else:
+            # プレイヤーの勝利（ナチュラル21）
+            winnings = int(amount * 2.5)
+            user_balances[user_id] += winnings
+            embed = discord.Embed(
+                title="Blackjack - Natural 21!",
+                description=(
+                    f"**Your Hand**: {', '.join(player_hand)} (Value: 21)\n"
+                    f"**Dealer's Hand**: {', '.join(dealer_hand)} (Value: {dealer_value})\n\n"
+                    f"You got a Natural 21! You win <:casino_tip2:1369628815709569044> {winnings} coins.\n"
+                    f"Your new balance is <:casino_tip2:1369628815709569044> {user_balances[user_id]} coins."
+                ),
+                color=discord.Color.green()
+            )
+            await interaction.response.send_message(embed=embed)
+            del blackjack_games[user_id]  # ゲームを終了
+            return
+
+    # プレイヤーとディーラーの手札を表示（ディーラーの2枚目は裏向き）
+    embed = discord.Embed(
+        title="Blackjack",
+        description=(
+            f"**Your Hand**: {', '.join(player_hand)} (Value: {calculate_hand_value(player_hand)})\n"
+            f"**Dealer's Hand**: {dealer_hand[0]}, ❓"
+        ),
+        color=discord.Color.blue()
+    )
+    embed.set_footer(text="Type '/hit' to draw another card or '/stand' to end your turn.")
+    await interaction.response.send_message(embed=embed)
+
+# ----------------------------------------------------------------------------------------------
+
+# ブラックジャックの "hit" コマンド
+@bot.tree.command(name="hit", description="Draw another card in blackjack.")
+async def hit(interaction: discord.Interaction):
+    user_id = interaction.user.id
+    if user_id not in blackjack_games:
+        await interaction.response.send_message("You are not currently in a blackjack game.", ephemeral=True)
+        return
+
+    game = blackjack_games[user_id]
+    deck = game["deck"]
+    player_hand = game["player_hand"]
+    game["double_down_allowed"] = False # ダブルダウンを無効化
+
+    # プレイヤーにカードを1枚配る
+    player_hand.append(deck.pop())
+    player_value = calculate_hand_value(player_hand)
+
+    # プレイヤーがバーストした場合
+    if player_value > 21:
+        bet = game["bet"]
+        user_balances[user_id] -= bet
+        del blackjack_games[user_id]  # ゲームを終了
+        embed = discord.Embed(
+            title="Blackjack - You Lose!",
+            description=(
+                f"**Your Hand**: {', '.join(player_hand)} (Value: {player_value})\n"
+                f"You went over 21 and lost <:casino_tip2:1369628815709569044> {bet} coins.\n"
+                f"Your new balance is <:casino_tip2:1369628815709569044> {user_balances[user_id]} coins."
+            ),
+            color=discord.Color.red()
+        )
+        await interaction.response.send_message(embed=embed)
+        return
+
+    # プレイヤーの手札を更新して表示
+    embed = discord.Embed(
+        title="Blackjack",
+        description=(
+            f"**Your Hand**: {', '.join(player_hand)} (Value: {player_value})\n"
+            f"**Dealer's Hand**: {game['dealer_hand'][0]}, ❓"
+        ),
+        color=discord.Color.blue()
+    )
+    embed.set_footer(text="Type 'hit' to draw another card or 'stand' to end your turn.")
+    await interaction.response.send_message(embed=embed)
+
+# ----------------------------------------------------------------------------------------------
+
+# ブラックジャックの "stand" コマンド
+@bot.tree.command(name="stand", description="End your turn in blackjack.")
+async def stand(interaction: discord.Interaction):
+    user_id = interaction.user.id
+    if user_id not in blackjack_games:
+        await interaction.response.send_message("You are not currently in a blackjack game.", ephemeral=True)
+        return
+
+    game = blackjack_games[user_id]
+    deck = game["deck"]
+    player_hand = game["player_hand"]
+    dealer_hand = game["dealer_hand"]
+    bet = game["bet"]
+    game["double_down_allowed"] = False # ダブルダウンを無効化
+
+    # 所持金から賭け金分を先に引く
+    user_balances[user_id] -= bet
+
+    # ディーラーの手札を公開
+    dealer_value = calculate_hand_value(dealer_hand)
+    while dealer_value < 17:
+        dealer_hand.append(deck.pop())
+        dealer_value = calculate_hand_value(dealer_hand)
+
+    player_value = calculate_hand_value(player_hand)
+
+    # 勝敗判定
+    if dealer_value > 21 or player_value > dealer_value:
+        user_balances[user_id] += bet * 2
+        result = "You Win!"
+        color = discord.Color.green()
+        balance_change = f"You gained <:casino_tip2:1369628815709569044> {bet * 2} coins."
+    elif player_value == dealer_value:
+        user_balances[user_id] += bet
+        result = "It's a Draw!"
+        color = discord.Color.orange()
+        balance_change = "Your balance remains the same."
+    else:
+        result = "You Lose!"
+        color = discord.Color.red()
+        balance_change = f"You lost <:casino_tip2:1369628815709569044> {bet} coins."
+
+    # ゲームを終了
+    del blackjack_games[user_id]
+
+    # 結果を表示
+    embed = discord.Embed(
+        title=f"Blackjack - {result}",
+        description=(
+            f"**Your Hand**: {', '.join(player_hand)} (Value: {player_value})\n"
+            f"**Dealer's Hand**: {', '.join(dealer_hand)} (Value: {dealer_value})\n\n"
+            f"{balance_change}\n"
+            f"Your new balance is <:casino_tip2:1369628815709569044> {user_balances[user_id]} coins."
+        ),
+        color=color
+    )
+    await interaction.response.send_message(embed=embed)
+
+# ----------------------------------------------------------------------------------------------
+
+# ブラックジャックの "double_down" コマンド
+@bot.tree.command(name="double_down", description="Double your bet and draw one card in blackjack.")
+async def double_down(interaction: discord.Interaction):
+    user_id = interaction.user.id
+    if user_id not in blackjack_games:
+        await interaction.response.send_message("You are not currently in a blackjack game.", ephemeral=True)
+        return
+
+    game = blackjack_games[user_id]
+
+    # ダブルダウンが許可されているか確認
+    if not game.get("double_down_allowed", False):
+        await interaction.response.send_message("You can only double down immediately after the first two cards are dealt.", ephemeral=True)
+        return
+
+    deck = game["deck"]
+    player_hand = game["player_hand"]
+    bet = game["bet"]
+
+    # 賭け金を倍にする
+    if user_balances[user_id] < bet:
+        await interaction.response.send_message("You don't have enough coins to double your bet.", ephemeral=True)
+        return
+
+    game["bet"] *= 2
+    user_balances[user_id] -= bet  # 賭け金を差し引く
+
+    # プレイヤーにカードを1枚配る
+    player_hand.append(deck.pop())
+    player_value = calculate_hand_value(player_hand)
+
+    # ダブルダウン後はフラグを無効化
+    game["double_down_allowed"] = False
+
+    # プレイヤーがバーストした場合
+    if player_value > 21:
+        del blackjack_games[user_id]  # ゲームを終了
+        embed = discord.Embed(
+            title="Blackjack - You Lose!",
+            description=(
+                f"**Your Hand**: {', '.join(player_hand)} (Value: {player_value})\n"
+                f"You went over 21 and lost <:casino_tip2:1369628815709569044> {game['bet']} coins.\n"
+                f"Your new balance is <:casino_tip2:1369628815709569044> {user_balances[user_id]} coins."
+            ),
+            color=discord.Color.red()
+        )
+        await interaction.response.send_message(embed=embed)
+        return
+
+    # ディーラーのターン
+    dealer_hand = game["dealer_hand"]
+    dealer_value = calculate_hand_value(dealer_hand)
+    while dealer_value < 17:
+        dealer_hand.append(deck.pop())
+        dealer_value = calculate_hand_value(dealer_hand)
+
+    # 勝敗判定
+    if dealer_value > 21 or player_value > dealer_value:
+        user_balances[user_id] += game["bet"] * 2
+        result = "You Win!"
+        color = discord.Color.green()
+        balance_change = f"You gained <:casino_tip2:1369628815709569044> {game['bet'] * 2} coins."
+    elif player_value == dealer_value:
+        result = "It's a Draw!"
+        color = discord.Color.orange()
+        balance_change = "Your balance remains the same."
+    else:
+        result = "You Lose!"
+        color = discord.Color.red()
+        balance_change = f"You lost <:casino_tip2:1369628815709569044> {game['bet']} coins."
+
+    # ゲームを終了
+    del blackjack_games[user_id]
+
+    # 結果を表示
+    embed = discord.Embed(
+        title=f"Blackjack - {result}",
+        description=(
+            f"**Your Hand**: {', '.join(player_hand)} (Value: {player_value})\n"
+            f"**Dealer's Hand**: {', '.join(dealer_hand)} (Value: {dealer_value})\n\n"
+            f"{balance_change}\n"
+            f"Your new balance is <:casino_tip2:1369628815709569044> {user_balances[user_id]} coins."
+        ),
+        color=color
+    )
+    await interaction.response.send_message(embed=embed)
 
 # server_thread()
 # bot.run(TOKEN)
