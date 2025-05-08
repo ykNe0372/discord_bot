@@ -133,9 +133,6 @@ async def balance_all(interaction: discord.Interaction):
         await interaction.response.send_message("No balances found for members.", ephemeral=True)
         return
 
-    # 名前と所持金を整列
-    max_name_length = max(len(name) for name, _ in balances)  # 名前の最大長を取得
-
     balances = sorted(balances, key=lambda x: x[1], reverse=True)  # 所持金でソート
 
     # Embedメッセージで出力
@@ -212,9 +209,12 @@ async def roulette(interaction: discord.Interaction, amount: str, option: app_co
         )
 
     # Embedメッセージで賭け情報を送信
-    embed_description = f"Bet Amount: <:casino_tip2:1369628815709569044> {amount}\nBet Option: {option.name}"
+    embed_description = (
+        f"**Bet Amount**\n<:casino_tip2:1369628815709569044> {amount} coins\n\n"
+        f"**Bet Option**\n{option.name}\n"
+    )
     if option.value == "number":
-        embed_description += f"\nChosen Number: {number}"
+        embed_description += f"\n**Chosen Number**\n{number}"
 
     embed = discord.Embed(
         title="Roulette Bet",
