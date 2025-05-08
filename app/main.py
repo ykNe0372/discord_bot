@@ -70,7 +70,7 @@ async def daily(interaction: discord.Interaction):
     if daily_claim_count.get(user_id, 0) % 7 == 6:
         base_reward += 100
         interaction.channel.send(
-            f"{interaction.user.mention} has claimed their daily reward for the 7th time!\nThey received an extra 100 coins!"
+            f"{interaction.user.mention} has claimed their daily reward for the 7th time!\nThey received an extra {base_reward} coins!"
         )
 
     # 日次報酬を付与
@@ -100,7 +100,7 @@ async def balance(interaction: discord.Interaction, user: discord.Member = None)
         balance = user_balances[user_id]
         embed = discord.Embed(
             title="Balance",
-            description=f"{target_user.name} has {"<:casino_tip:1369502280096682015>"} {balance}.",
+            description=f"{target_user.name} has {"<:casino_tip2:1369628815709569044>"} {balance}.",
             color=discord.Color.green()
         )
         embed.set_author(name=target_user.name, icon_url=target_user.avatar.url)
@@ -147,7 +147,7 @@ async def balance_all(interaction: discord.Interaction):
     for name, balance in balances:
         embed.add_field(
             name=name,
-            value=f"<:casino_tip:1369502280096682015> {balance} coins",
+            value=f"<:casino_tip2:1369628815709569044> {balance} coins",
             inline=False
         )
 
@@ -179,6 +179,9 @@ async def roulette(interaction: discord.Interaction, amount: str, option: app_co
     if user_id not in user_balances:
         user_balances[user_id] = 0  # 所持金が未設定の場合は0に初期化
 
+    # 賭け金の検証
+    max_bet = 5000 if user_balances[user_id] >= 0 else 500
+
     # "all"が指定された場合、所持金全額を賭ける
     if amount.lower() == "all":
         amount = user_balances[user_id]
@@ -191,19 +194,25 @@ async def roulette(interaction: discord.Interaction, amount: str, option: app_co
         except ValueError:
             await interaction.response.send_message("Please enter a valid number for the bet amount.", ephemeral=True)
             return
+
     if amount <= 0:
         await interaction.response.send_message("Please enter a valid bet amount.", ephemeral=True)
+        return
+
+    # all以外の時に、賭け金が最大賭け金を超えている場合
+    if amount != user_balances[user_id] and amount > max_bet:
+        await interaction.response.send_message(f"Your bet amount exceeds the maximum limit of <:casino_tip2:1369628815709569044> {max_bet}.", ephemeral=True)
         return
 
     # 賭け金が所持金を超えている場合の警告を追加
     if user_balances[user_id] >= 0 and user_balances[user_id] < amount:
         channel = interaction.channel
         await channel.send(
-            f"{interaction.user.mention}\nWarning: You are betting more than your current balance ({user_balances[user_id]} coins). Your balance will go negative if you lose."
+            f"{interaction.user.mention}\nWarning: You are betting more than your current balance <:casino_tip2:1369628815709569044>({user_balances[user_id]}).\nYour balance will go negative if you lose."
         )
 
     # Embedメッセージで賭け情報を送信
-    embed_description = f"Bet Amount: {amount} coins\nBet Option: {option.name}"
+    embed_description = f"Bet Amount: <:casino_tip2:1369628815709569044> {amount}\nBet Option: {option.name}"
     if option.value == "number":
         embed_description += f"\nChosen Number: {number}"
 
@@ -226,32 +235,32 @@ async def roulette(interaction: discord.Interaction, amount: str, option: app_co
     if option.value == "number":
         if result == number:
             user_balances[user_id] += amount * 36
-            result_message = f"The roulette landed on {result}.\nYOU WIN! The number matched! You gained {amount * 36} coins.\n\n{interaction.user.name} now have {user_balances[user_id]} coins."
+            result_message = f"The roulette landed on {result}.\nYOU WIN! The number matched! You gained <:casino_tip2:1369628815709569044> {amount * 36}.\n\n{interaction.user.name} now have <:casino_tip2:1369628815709569044> {user_balances[user_id]}."
         else:
-            result_message = f"The roulette landed on {result}.\nYOU LOSE... The number didn't match. You lost {amount} coins.\n\n{interaction.user.name} now have {user_balances[user_id]} coins."
+            result_message = f"The roulette landed on {result}.\nYOU LOSE... The number didn't match. You lost <:casino_tip2:1369628815709569044> {amount}.\n\n{interaction.user.name} now have <:casino_tip2:1369628815709569044> {user_balances[user_id]}."
     elif option.value == "small" and 1 <= result <= 12:
         user_balances[user_id] += amount * 3
-        result_message = f"The roulette landed on {result}.\nYOU WIN! The range matched! You gained {amount * 3} coins.\n\n{interaction.user.name} now have {user_balances[user_id]} coins."
+        result_message = f"The roulette landed on {result}.\nYOU WIN! The range matched! You gained <:casino_tip2:1369628815709569044> {amount * 3}.\n\n{interaction.user.name} now have <:casino_tip2:1369628815709569044> {user_balances[user_id]}."
     elif option.value == "medium" and 13 <= result <= 24:
         user_balances[user_id] += amount * 3
-        result_message = f"The roulette landed on {result}.\nYOU WIN! The range matched! You gained {amount * 3} coins.\n\n{interaction.user.name} now have {user_balances[user_id]} coins."
+        result_message = f"The roulette landed on {result}.\nYOU WIN! The range matched! You gained <:casino_tip2:1369628815709569044> {amount * 3}.\n\n{interaction.user.name} now have <:casino_tip2:1369628815709569044> {user_balances[user_id]}."
     elif option.value == "large" and 25 <= result <= 36:
         user_balances[user_id] += amount * 3
-        result_message = f"The roulette landed on {result}.\nYOU WIN! The range matched! You gained {amount * 3} coins.\n\n{interaction.user.name} now have {user_balances[user_id]} coins."
+        result_message = f"The roulette landed on {result}.\nYOU WIN! The range matched! You gained <:casino_tip2:1369628815709569044> {amount * 3}.\n\n{interaction.user.name} now have <:casino_tip2:1369628815709569044> {user_balances[user_id]}."
     elif option.value == "first" and 1 <= result <= 18:
         user_balances[user_id] += amount * 2
-        result_message = f"The roulette landed on {result}.\nYOU WIN! The range matched! You gained {amount * 2} coins.\n\n{interaction.user.name} now have {user_balances[user_id]} coins."
+        result_message = f"The roulette landed on {result}.\nYOU WIN! The range matched! You gained <:casino_tip2:1369628815709569044> {amount * 2}.\n\n{interaction.user.name} now have <:casino_tip2:1369628815709569044> {user_balances[user_id]}."
     elif option.value == "second" and 19 <= result <= 36:
         user_balances[user_id] += amount * 2
-        result_message = f"The roulette landed on {result}.\nYOU WIN! The range matched! You gained {amount * 2} coins.\n\n{interaction.user.name} now have {user_balances[user_id]} coins."
+        result_message = f"The roulette landed on {result}.\nYOU WIN! The range matched! You gained <:casino_tip2:1369628815709569044> {amount * 2}.\n\n{interaction.user.name} now have <:casino_tip2:1369628815709569044> {user_balances[user_id]}."
     elif option.value == "even" and result_type == "even":
         user_balances[user_id] += amount * 2
-        result_message = f"The roulette landed on {result} ({result_type}).\nYOU WIN! You gained {amount * 2} coins.\n\n{interaction.user.name} now have {user_balances[user_id]} coins."
+        result_message = f"The roulette landed on {result} ({result_type}).\nYOU WIN! You gained <:casino_tip2:1369628815709569044> {amount * 2}.\n\n{interaction.user.name} now have <:casino_tip2:1369628815709569044> {user_balances[user_id]}."
     elif option.value == "odd" and result_type == "odd":
         user_balances[user_id] += amount * 2
-        result_message = f"The roulette landed on {result} ({result_type}).\nYOU WIN! You gained {amount * 2} coins.\n\n{interaction.user.name} now have {user_balances[user_id]} coins."
+        result_message = f"The roulette landed on {result} ({result_type}).\nYOU WIN! You gained <:casino_tip2:1369628815709569044> {amount * 2}.\n\n{interaction.user.name} now have <:casino_tip2:1369628815709569044> {user_balances[user_id]}."
     else:
-        result_message = f"The roulette landed on {result}.\nYOU LOSE... You lost {amount} coins.\n\n{interaction.user.name} now have {user_balances[user_id]} coins."
+        result_message = f"The roulette landed on {result}.\nYOU LOSE... You lost <:casino_tip2:1369628815709569044> {amount}.\n\n{interaction.user.name} now have <:casino_tip2:1369628815709569044> {user_balances[user_id]}."
 
     # 通常のメッセージで結果を送信
     await interaction.followup.send(result_message)
