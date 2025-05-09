@@ -736,7 +736,7 @@ async def multi_bj(interaction: discord.Interaction, amount: str):
                 continue
 
             # プレイヤーのターンを進行
-            await player.send("It's your turn! Type '/hit' to draw a card or '/stand' to end your turn.")
+            await message.channel.send(f"{player.name}'s turn! Type '/hit' to draw a card or '/stand' to end your turn.")
             try:
                 response = await bot.wait_for(
                     "message",
@@ -744,7 +744,7 @@ async def multi_bj(interaction: discord.Interaction, amount: str):
                     check=lambda m: m.author == player and m.content.lower() in ["/hit", "/stand"]
                 )
             except TimeoutError:
-                await player.send("You took too long to respond. Your turn has been skipped.")
+                await message.channel.send(f"{player.mention} You took too long to respond. Your turn has been skipped.")
                 game_state[player.id]["stand"] = True
                 continue
 
@@ -979,12 +979,15 @@ async def stand(interaction: discord.Interaction):
 # ブラックジャックの "double_down" コマンド
 @bot.tree.command(name="double_down", description="Double your bet and draw one card in blackjack.")
 async def double_down(interaction: discord.Interaction):
+    channel_id = interaction.channel.id
     user_id = interaction.user.id
-    if user_id not in blackjack_games:
+
+    # ゲームが存在するか確認
+    if channel_id not in blackjack_games:
         await interaction.response.send_message("You are not currently in a blackjack game.", ephemeral=True)
         return
 
-    game = blackjack_games[user_id]
+    game = blackjack_games[channel_id]
 
     # ダブルダウンが許可されているか確認
     if not game.get("double_down_allowed", False):
@@ -993,6 +996,8 @@ async def double_down(interaction: discord.Interaction):
 
     deck = game["deck"]
     player_hand = game["player_hand"]
+
+    game["bet"] *= 2
     bet = game["bet"]
 
     # 賭け金を倍にする
@@ -1000,7 +1005,6 @@ async def double_down(interaction: discord.Interaction):
         await interaction.response.send_message("You don't have enough coins to double your bet.", ephemeral=True)
         return
 
-    game["bet"] *= 2
     user_balances[user_id] -= bet  # 賭け金を差し引く
 
     # プレイヤーにカードを1枚配る
@@ -1012,7 +1016,7 @@ async def double_down(interaction: discord.Interaction):
 
     # プレイヤーがバーストした場合
     if player_value > 21:
-        del blackjack_games[user_id]  # ゲームを終了
+        del blackjack_games[channel_id]  # ゲームを終了
         embed = discord.Embed(
             title="Blackjack - You Lose!",
             description=(
@@ -1048,7 +1052,7 @@ async def double_down(interaction: discord.Interaction):
         balance_change = f"You lost <:casino_tip2:1369628815709569044> {game['bet']} coins."
 
     # ゲームを終了
-    del blackjack_games[user_id]
+    del blackjack_games[channel_id]
 
     # 結果を表示
     embed = discord.Embed(
