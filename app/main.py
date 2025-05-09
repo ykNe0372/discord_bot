@@ -3,6 +3,7 @@ from discord import app_commands
 from discord.ext import commands
 import os
 import random
+import asyncio
 from dotenv import load_dotenv
 from datetime import datetime, timedelta, timezone
 from server import server_thread
@@ -57,7 +58,7 @@ def calculate_hand_value(hand):
 # ----------------------------------------------------------------------------------------------
 
 # ターンを進める関数
-def next_turn(game):
+def next_turn(game, channel):
     players = game["players"]
     current_index = players.index(next(player for player in players if player.id == game["current_turn"]))
     for i in range(1, len(players) + 1):
@@ -67,8 +68,9 @@ def next_turn(game):
             game["current_turn"] = next_player.id
             return
 
-    # 全員がスタンドした場合、ディーラーのターンに進む
+    # 全員がスタンドした場合、ディーラーのターンを開始
     game["current_turn"] = "dealer"
+    asyncio.create_task(start_dealer_turn(channel, game))  # ディーラーのターンを非同期で開始
 
 # ----------------------------------------------------------------------------------------------
 
@@ -93,31 +95,64 @@ async def update_game_state(channel, game):
 
     # ディーラーの手札を表示
     dealer_hand = game["dealer_hand"]
-    if game["current_turn"] == "dealer":
-        # ディーラーのターン中は手札をすべて表示
-        dealer_value = calculate_hand_value(dealer_hand)
-        embed.add_field(
-            name="Dealer's Hand",
-            value=f"{', '.join(dealer_hand)} (Value: {dealer_value})",
-            inline=False
-        )
-    else:
-        # ディーラーのターンでない場合は2枚目を隠す
-        embed.add_field(
-            name="Dealer's Hand",
-            value=f"{dealer_hand[0]}, ❓",
-            inline=False
-        )
+    # ディーラーのターンでない場合は2枚目を隠す
+    embed.add_field(
+        name="Dealer's Hand",
+        value=f"{dealer_hand[0]}, ❓",
+        inline=False
+    )
 
     # 現在のターンを表示
-    if game["current_turn"] == "dealer":
-        embed.add_field(name="Dealer's Turn", value="The dealer is playing now.", inline=False)
-    else:
+    if game["current_turn"] != "dealer":
         current_player = next(player for player in game["players"] if player.id == game["current_turn"])
         embed.add_field(name="Current Turn", value=f"It's {current_player.name}'s turn.", inline=False)
 
     await channel.send(embed=embed)
 
+# ----------------------------------------------------------------------------------------------
+
+async def start_dealer_turn(channel, game):
+    dealer_hand = game["dealer_hand"]
+    deck = game["deck"]
+    dealer_value = calculate_hand_value(dealer_hand)
+
+    # ディーラーがカードを引く
+    while dealer_value < 17:
+        card = deck.pop()
+        dealer_hand.append(card)
+        dealer_value = calculate_hand_value(dealer_hand)
+
+    # 勝敗判定
+    results = []
+    for player in game["players"]:
+        player_hand = game["game_state"][player.id]["hand"]
+        player_value = calculate_hand_value(player_hand)
+
+        if player_value > 21:
+            result = f"{player.name}: Busted!"
+        elif dealer_value > 21 or player_value > dealer_value:
+            result = f"{player.name}: Won!"
+        elif player_value == dealer_value:
+            result = f"{player.name}: Draw!"
+        else:
+            result = f"{player.name}: Lost!"
+        results.append(result)
+
+    # 結果を送信
+    embed = discord.Embed(
+        title="Blackjack Results",
+        description="\n".join(results),
+        color=discord.Color.green()
+    )
+    embed.add_field(
+        name="Dealer's Hand",
+        value=f"{', '.join(dealer_hand)} (Value: {dealer_value})",
+        inline=False
+    )
+    await channel.send(embed=embed)
+
+    # ゲームを終了
+    del blackjack_games[channel.id]
 # ==============================================================================================
 
 @bot.event
@@ -685,7 +720,7 @@ async def multi_bj(interaction: discord.Interaction, amount: str):
             and not user.bot
         )
 
-    # 30秒間リアクションを待機
+    # 60秒間リアクションを待機
     try:
         while len(players) < max_players:
             reaction, user = await bot.wait_for("reaction_add", timeout=60.0, check=check_reaction)
@@ -769,7 +804,6 @@ async def multi_bj(interaction: discord.Interaction, amount: str):
             try:
                 response = await bot.wait_for(
                     "message",
-                    timeout=60.0,
                     check=lambda m: m.author == player and m.content.lower() in ["/hit", "/stand"]
                 )
             except TimeoutError:
@@ -887,10 +921,7 @@ async def hit(interaction: discord.Interaction):
         # 手札を表示
         embed = discord.Embed(
             title="Blackjack",
-            description=(
-                f"**Your Hand**: {', '.join(player_hand)} (Value: {hand_value})\n"
-                f"**Dealer's Hand**: {game['dealer_hand'][0]}, ❓"
-            ),
+            description=f"**Your Hand**: {', '.join(player_hand)} (Value: {hand_value})\n**Dealer's Hand**: {game['dealer_hand'][0]}, ❓",
             color=discord.Color.blue()
         )
         embed.set_footer(text="Type '/hit' to draw another card or '/stand' to end your turn.")
@@ -915,23 +946,20 @@ async def hit(interaction: discord.Interaction):
             player_state["stand"] = True
             embed = discord.Embed(
                 title="Blackjack - You Busted!",
-                description=f"Your hand: {', '.join(player_state['hand'])} (Value: {hand_value})\nYou went over 21!",
+                description=f"**Your hand**: {', '.join(player_state['hand'])} (Value: {hand_value})\nYou went over 21!",
                 color=discord.Color.red()
             )
             await interaction.response.send_message(embed=embed)
         else:
             embed = discord.Embed(
                 title="Your Blackjack Hand",
-                description=(
-                    f"Your hand: {', '.join(player_state['hand'])} (Value: {hand_value})\n",
-                    f"**Dealer's Hand**: {game['dealer_hand'][0]}, ❓"
-                ),
+                description=f"**Your hand**: {', '.join(player_state['hand'])} (Value: {hand_value})\n**Dealer's Hand**: {game['dealer_hand'][0]}, ❓",
                 color=discord.Color.blue()
             )
             await interaction.response.send_message(embed=embed)
 
         # 次のターンに進む
-        next_turn(game)
+        next_turn(game, interaction.channel)
 
         # ゲームの進行状況を更新
         await update_game_state(interaction.channel, game)
@@ -1009,7 +1037,7 @@ async def stand(interaction: discord.Interaction):
         await interaction.response.send_message(embed=embed)
 
         # 次のターンに進む
-        next_turn(game)
+        next_turn(game, interaction.channel)
 
         # ゲームの進行状況を更新
         await update_game_state(interaction.channel, game)
