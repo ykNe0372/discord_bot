@@ -843,6 +843,7 @@ async def hit(interaction: discord.Interaction):
                 title="Blackjack - You Lose!",
                 description=(
                     f"**Your Hand**: {', '.join(player_hand)} (Value: {hand_value})\n"
+                    f"**Dealer's Hand**: {', '.join(game['dealer_hand'])} (Value: {calculate_hand_value(game['dealer_hand'])})\n\n"
                     f"You went over 21 and lost <:casino_tip2:1369628815709569044> {bet} coins.\n"
                     f"Your new balance is <:casino_tip2:1369628815709569044> {user_balances[user_id]} coins."
                 ),
@@ -882,14 +883,21 @@ async def hit(interaction: discord.Interaction):
             player_state["stand"] = True
             embed = discord.Embed(
                 title="Blackjack - You Busted!",
-                description=f"Your hand: {', '.join(player_state['hand'])} (Value: {hand_value})\nYou went over 21!",
+                description=(
+                    f"**Your hand**: {', '.join(player_state['hand'])} (Value: {hand_value})\nYou went over 21!",
+                    f"**Dealer's Hand**: {', '.join(game['dealer_hand'])} (Value: {calculate_hand_value(game['dealer_hand'])})\n\n"
+                    "You went over 21!"
+                ),
                 color=discord.Color.red()
             )
             await interaction.response.send_message(embed=embed)
         else:
             embed = discord.Embed(
                 title="Your Blackjack Hand",
-                description=f"Your hand: {', '.join(player_state['hand'])} (Value: {hand_value})",
+                description=(
+                    f"Your hand: {', '.join(player_state['hand'])} (Value: {hand_value})",
+                    f"**Dealer's Hand**: {game['dealer_hand'][0]}, ❓"
+                ),
                 color=discord.Color.blue()
             )
             await interaction.response.send_message(embed=embed)
