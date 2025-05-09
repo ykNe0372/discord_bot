@@ -79,6 +79,7 @@ async def update_game_state(channel, game):
         color=discord.Color.blue()
     )
 
+    # 各プレイヤーの手札を表示
     for player in game["players"]:
         player_state = game["game_state"][player.id]
         hand = player_state["hand"]
@@ -90,6 +91,25 @@ async def update_game_state(channel, game):
             inline=False
         )
 
+    # ディーラーの手札を表示
+    dealer_hand = game["dealer_hand"]
+    if game["current_turn"] == "dealer":
+        # ディーラーのターン中は手札をすべて表示
+        dealer_value = calculate_hand_value(dealer_hand)
+        embed.add_field(
+            name="Dealer's Hand",
+            value=f"{', '.join(dealer_hand)} (Value: {dealer_value})",
+            inline=False
+        )
+    else:
+        # ディーラーのターンでない場合は2枚目を隠す
+        embed.add_field(
+            name="Dealer's Hand",
+            value=f"{dealer_hand[0]}, ❓",
+            inline=False
+        )
+
+    # 現在のターンを表示
     if game["current_turn"] == "dealer":
         embed.add_field(name="Dealer's Turn", value="The dealer is playing now.", inline=False)
     else:
@@ -596,11 +616,9 @@ async def blackjack(interaction: discord.Interaction, amount: str):
 @bot.tree.command(name="multi_bj", description="Start a multiplayer blackjack game. Up to 4 players can join.")
 @app_commands.describe(amount="The amount to bet (or type 'all' to bet all your coins)")
 async def multi_bj(interaction: discord.Interaction, amount: str):
+    channel_id = interaction.channel.id
     user_id = interaction.user.id
-    if user_id not in user_balances:
-        user_balances[user_id] = 0  # 所持金が未設定の場合は0に初期化
 
-    user_id = interaction.user.id
     if user_id not in user_balances:
         user_balances[user_id] = 0  # 所持金が未設定の場合は0に初期化
 
@@ -697,16 +715,19 @@ async def multi_bj(interaction: discord.Interaction, amount: str):
 
     # 各プレイヤーに手札を配る
     game_state = {player.id: {"hand": [deck.pop(), deck.pop()], "stand": False} for player in players}
+    dealer_hand = [deck.pop(), deck.pop()]
 
     # ゲーム状態を保存
-    blackjack_games[interaction.channel.id] = {
+    blackjack_games[channel_id] = {
         "mode": "multi",  # マルチプレイヤーモード
         "deck": deck,
         "players": players,
         "game_state": game_state,
         "current_turn": players[0].id,  # 最初のプレイヤーのID
-        "dealer_hand": [deck.pop(), deck.pop()]
+        "dealer_hand": dealer_hand
     }
+
+    game = blackjack_games[channel_id]  # gameオブジェクトを取得
 
     # プレイヤーに手札を送信
     embed = discord.Embed(
@@ -722,6 +743,14 @@ async def multi_bj(interaction: discord.Interaction, amount: str):
                 value=f"{', '.join(player_hand)} (Value: {calculate_hand_value(player_hand)})",
                 inline=False
             )
+
+    # ディーラーの手持ちを表示（2枚目は裏向き）
+    embed.add_field(
+        name="Dealer's Hand",
+        value=f"{dealer_hand[0]}, ❓",
+        inline=False
+    )
+
     embed.set_footer(text="Type '/hit' to draw another card or '/stand' to end your turn.")
     await interaction.channel.send(embed=embed)
 
@@ -772,9 +801,12 @@ async def multi_bj(interaction: discord.Interaction, amount: str):
                 await player.send("You have chosen to stand.")
 
     # ディーラーのターン
+    dealer_hand = game["dealer_hand"]  # game["dealer_hand"]を参照
+    dealer_value = calculate_hand_value(dealer_hand)
     while dealer_value < 17:
-        dealer_hand.append(deck.pop())
-        dealer_value = calculate_hand_value(dealer_hand)
+        card = game["deck"].pop()  # デッキからカードを引く
+        dealer_hand.append(card)  # game["dealer_hand"]を直接更新
+        dealer_value = calculate_hand_value(dealer_hand)  # 更新後の値を再計算
 
     # 勝敗判定
     results = []
@@ -883,11 +915,7 @@ async def hit(interaction: discord.Interaction):
             player_state["stand"] = True
             embed = discord.Embed(
                 title="Blackjack - You Busted!",
-                description=(
-                    f"**Your hand**: {', '.join(player_state['hand'])} (Value: {hand_value})\nYou went over 21!",
-                    f"**Dealer's Hand**: {', '.join(game['dealer_hand'])} (Value: {calculate_hand_value(game['dealer_hand'])})\n\n"
-                    "You went over 21!"
-                ),
+                description=f"Your hand: {', '.join(player_state['hand'])} (Value: {hand_value})\nYou went over 21!",
                 color=discord.Color.red()
             )
             await interaction.response.send_message(embed=embed)
@@ -895,7 +923,7 @@ async def hit(interaction: discord.Interaction):
             embed = discord.Embed(
                 title="Your Blackjack Hand",
                 description=(
-                    f"Your hand: {', '.join(player_state['hand'])} (Value: {hand_value})",
+                    f"Your hand: {', '.join(player_state['hand'])} (Value: {hand_value})\n",
                     f"**Dealer's Hand**: {game['dealer_hand'][0]}, ❓"
                 ),
                 color=discord.Color.blue()
@@ -974,7 +1002,11 @@ async def stand(interaction: discord.Interaction):
 
         # プレイヤーの状態を更新
         game["game_state"][user_id]["stand"] = True
-        await interaction.response.send_message("You have chosen to stand.")
+        embed = discord.Embed(
+            title="You Chose to Stand",
+            color=discord.Color.blue()
+        )
+        await interaction.response.send_message(embed=embed)
 
         # 次のターンに進む
         next_turn(game)
@@ -1029,6 +1061,7 @@ async def double_down(interaction: discord.Interaction):
             title="Blackjack - You Lose!",
             description=(
                 f"**Your Hand**: {', '.join(player_hand)} (Value: {player_value})\n"
+                f"**Dealer's Hand**: {', '.join(game['dealer_hand'])} (Value: {calculate_hand_value(game['dealer_hand'])})\n\n"
                 f"You went over 21 and lost <:casino_tip2:1369628815709569044> {game['bet']} coins.\n"
                 f"Your new balance is <:casino_tip2:1369628815709569044> {user_balances[user_id]} coins."
             ),
@@ -1036,6 +1069,17 @@ async def double_down(interaction: discord.Interaction):
         )
         await interaction.response.send_message(embed=embed)
         return
+
+    # ディーラーの手持ちを表示
+    embed = discord.Embed(
+        title="Your Blackjack Hand",
+        description=(
+            f"**Your Hand**: {', '.join(player_hand)} (Value: {player_value})\n"
+            f"**Dealer's Hand**: {game['dealer_hand'][0]}, ❓"
+        ),
+        color=discord.Color.blue()
+    )
+    await interaction.response.send_message(embed=embed)
 
     # ディーラーのターン
     dealer_hand = game["dealer_hand"]
