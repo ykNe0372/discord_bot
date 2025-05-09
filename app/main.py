@@ -66,6 +66,11 @@ def next_turn(game, channel):
         next_player = players[next_index]
         if not game["game_state"][next_player.id]["stand"]:
             game["current_turn"] = next_player.id
+            game["double_down_allowed"] = True
+            # 手札がリセットされていないか確認
+            if not game["game_state"][next_player.id]["hand"]:
+                print(f"Debug: Next player's hand is empty. Player ID: {next_player.id}")
+                continue  # 手札が空の場合はスキップ
             return
 
     # 全員がスタンドした場合、ディーラーのターンを開始
@@ -153,6 +158,57 @@ async def start_dealer_turn(channel, game):
 
     # ゲームを終了
     del blackjack_games[channel.id]
+
+# ----------------------------------------------------------------------------------------------
+
+# プレイヤーごとの賭け金を設定
+async def set_bets(interaction, game, players):
+    channel = interaction.channel
+    game_state = game["game_state"]
+
+    for player in players:
+        await channel.send(f"{player.mention}, please enter your bet amount (or type 'all' to bet all your coins).")
+
+        def check(m):
+            return m.author == player and m.channel == channel
+
+        try:
+            response = await bot.wait_for("message", timeout=60.0, check=check)
+            bet_input = response.content.lower()
+
+            # "all"が指定された場合、所持金全額を賭ける
+            if bet_input == "all":
+                bet = user_balances[player.id]
+                if bet <= 0:
+                    await channel.send(f"{player.mention}, you don't have any coins to bet.")
+                    game_state[player.id]["bet"] = 0
+                    continue
+            else:
+                try:
+                    bet = int(bet_input)
+                except ValueError:
+                    await channel.send(f"{player.mention}, please enter a valid number.")
+                    game_state[player.id]["bet"] = 0
+                    continue
+
+            # 賭け金の検証
+            if bet <= 0:
+                await channel.send(f"{player.mention}, please enter a valid bet amount.")
+                game_state[player.id]["bet"] = 0
+                continue
+
+            if bet > user_balances[player.id]:
+                await channel.send(f"{player.mention}, you don't have enough coins to bet that amount.")
+                game_state[player.id]["bet"] = 0
+                continue
+
+            # 賭け金を保存
+            game_state[player.id]["bet"] = bet
+            await channel.send(f"{player.mention}, your bet of <:casino_tip2:1369628815709569044> {bet} coins has been placed.")
+
+        except asyncio.TimeoutError:
+            await channel.send(f"{player.mention}, you took too long to respond. Your bet has been set to 0.")
+            game_state[player.id]["bet"] = 0
 # ==============================================================================================
 
 @bot.event
@@ -649,8 +705,7 @@ async def blackjack(interaction: discord.Interaction, amount: str):
 
 # スラッシュコマンド: /multi_bj
 @bot.tree.command(name="multi_bj", description="Start a multiplayer blackjack game. Up to 4 players can join.")
-@app_commands.describe(amount="The amount to bet (or type 'all' to bet all your coins)")
-async def multi_bj(interaction: discord.Interaction, amount: str):
+async def multi_bj(interaction: discord.Interaction):
     channel_id = interaction.channel.id
     user_id = interaction.user.id
 
@@ -659,35 +714,6 @@ async def multi_bj(interaction: discord.Interaction, amount: str):
 
     # 賭け金の検証
     max_bet = 5000 if user_balances[user_id] >= 0 else 500
-
-    # "all"が指定された場合、所持金全額を賭ける
-    if amount.lower() == "all":
-        amount = user_balances[user_id]
-        if amount <= 0:
-            await interaction.response.send_message("You don't have any coins to bet.", ephemeral=True)
-            return
-    else:
-        try:
-            amount = int(amount)
-        except ValueError:
-            await interaction.response.send_message("Please enter a valid number for the bet amount.", ephemeral=True)
-            return
-
-    if amount <= 0:
-        await interaction.response.send_message("Please enter a valid bet amount.", ephemeral=True)
-        return
-
-    # all以外の時に、賭け金が最大賭け金を超えている場合
-    if amount != user_balances[user_id] and amount > max_bet:
-        await interaction.response.send_message(f"Your bet amount exceeds the maximum limit of <:casino_tip2:1369628815709569044> {max_bet}.", ephemeral=True)
-        return
-
-    # 賭け金が所持金を超えている場合の警告を追加
-    if user_balances[user_id] >= 0 and user_balances[user_id] < amount:
-        channel = interaction.channel
-        await channel.send(
-            f"{interaction.user.mention}\nWarning: You are betting more than your current balance <:casino_tip2:1369628815709569044> {user_balances[user_id]}.\nYour balance will go negative if you lose."
-        )
 
     # 募集メッセージを送信
     embed = discord.Embed(
@@ -736,10 +762,37 @@ async def multi_bj(interaction: discord.Interaction, amount: str):
     except TimeoutError:
         pass
 
+    # ゲーム状態を初期化
+    blackjack_games[channel_id] = {
+        "mode": "multi",  # マルチプレイヤーモード
+        "deck": create_deck(),
+        "players": players,
+        "game_state": {player.id: {"hand": [], "stand": False, "bet": 0} for player in players},
+        "dealer_hand": [],
+        "current_turn": players[0].id,  # 最初のプレイヤーのID
+        "double_down_allowed": True  # ダブルダウンを許可
+    }
+
+    game = blackjack_games[channel_id]
+
     # プレイヤーが1人以下の場合、ゲームをキャンセル
     if len(players) < 2:
         await message.channel.send("Not enough players to start the game. The game has been canceled.")
         return
+
+    # 賭け金を設定
+    await set_bets(interaction, blackjack_games[channel_id], players)
+
+    # 賭け金が1人でも0の場合、ゲームをキャンセル
+    if any(game["game_state"][player.id]["bet"] == 0 for player in players):
+        await message.channel.send("At least one player did not place a valid bet. The game has been canceled.")
+        del blackjack_games[channel_id]
+        return
+
+    # 賭け金を減らす処理を追加
+    for player in players:
+        bet = game["game_state"][player.id]["bet"]
+        user_balances[player.id] -= bet
 
     # ゲーム開始
     await message.channel.send(f"The game is starting with {len(players)} players: {', '.join([player.name for player in players])}!")
@@ -751,16 +804,8 @@ async def multi_bj(interaction: discord.Interaction, amount: str):
     # 各プレイヤーに手札を配る
     game_state = {player.id: {"hand": [deck.pop(), deck.pop()], "stand": False} for player in players}
     dealer_hand = [deck.pop(), deck.pop()]
-
-    # ゲーム状態を保存
-    blackjack_games[channel_id] = {
-        "mode": "multi",  # マルチプレイヤーモード
-        "deck": deck,
-        "players": players,
-        "game_state": game_state,
-        "current_turn": players[0].id,  # 最初のプレイヤーのID
-        "dealer_hand": dealer_hand
-    }
+    blackjack_games[channel_id]["game_state"] = game_state
+    blackjack_games[channel_id]["dealer_hand"] = dealer_hand
 
     game = blackjack_games[channel_id]  # gameオブジェクトを取得
 
@@ -941,6 +986,10 @@ async def hit(interaction: discord.Interaction):
         player_state["hand"].append(card)
         hand_value = calculate_hand_value(player_state["hand"])
 
+        # デバッグ用ログ
+        if not player_state["hand"]:
+            print(f"Debug: Player's hand is empty after drawing a card. Player ID: {user_id}")
+
         # バースト判定
         if hand_value > 21:
             player_state["stand"] = True
@@ -1030,6 +1079,11 @@ async def stand(interaction: discord.Interaction):
 
         # プレイヤーの状態を更新
         game["game_state"][user_id]["stand"] = True
+
+        # 手札がリセットされていないか確認
+        if not game["game_state"][user_id]["hand"]:
+            print(f"Debug: Player's hand is empty after standing. Player ID: {user_id}")
+            raise ValueError("Player's hand has been unexpectedly cleared.")
         embed = discord.Embed(
             title="You Chose to Stand",
             color=discord.Color.blue()
@@ -1067,6 +1121,9 @@ async def double_down(interaction: discord.Interaction):
 
     game["bet"] *= 2
     bet = game["bet"]
+
+    # ダブルダウン後はフラグを無効化
+    game["double_down_allowed"] = False
 
     # 賭け金を倍にする
     if user_balances[user_id] < bet:
