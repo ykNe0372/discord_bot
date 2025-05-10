@@ -134,18 +134,30 @@ async def start_dealer_turn(channel, game):
 
         if player_value > 21:
             result = f"{player.name}: Busted!"
+            balance_change = f"-<:casino_tip2:1369628815709569044> {game['game_state'][player.id]['bet']}"
+            user_balances[player.id] -= game["game_state"][player.id]["bet"]
         elif dealer_value > 21 or player_value > dealer_value:
+            winnings = game["game_state"][player.id]["bet"] * 2
+            user_balances[player.id] += winnings
             result = f"{player.name}: Won!"
+            balance_change = f"+<:casino_tip2:1369628815709569044> {winnings}"
         elif player_value == dealer_value:
             result = f"{player.name}: Draw!"
+            balance_change = "+<:casino_tip2:1369628815709569044> 0"
         else:
+            loss = game["game_state"][player.id]["bet"]
+            user_balances[player.id] -= loss
             result = f"{player.name}: Lost!"
-        results.append(result)
+            balance_change = f"-<:casino_tip2:1369628815709569044> {loss}"
+
+        results.append(
+            f"{result}\n**Balance Change**: {balance_change}\n**Current Balance**: <:casino_tip2:1369628815709569044> {user_balances[player.id]}"
+        )
 
     # 結果を送信
     embed = discord.Embed(
         title="Blackjack Results",
-        description="\n".join(results),
+        description="\n\n".join(results),
         color=discord.Color.green()
     )
     embed.add_field(
@@ -791,11 +803,6 @@ async def multi_bj(interaction: discord.Interaction):
         del blackjack_games[channel_id]
         return
 
-    # 賭け金を減らす処理を追加
-    for player in players:
-        bet = game["game_state"][player.id]["bet"]
-        user_balances[player.id] -= bet
-
     # ゲーム開始
     await message.channel.send(f"The game is starting with {len(players)} players: {', '.join([player.name for player in players])}!")
 
@@ -804,7 +811,7 @@ async def multi_bj(interaction: discord.Interaction):
     random.shuffle(deck)
 
     # 各プレイヤーに手札を配る
-    game_state = {player.id: {"hand": [deck.pop(), deck.pop()], "stand": False, "bet": bet} for player in players}
+    game_state = {player.id: {"hand": [deck.pop(), deck.pop()], "stand": False, "bet": game["game_state"][player.id]["bet"]} for player in players}
     dealer_hand = [deck.pop(), deck.pop()]
     blackjack_games[channel_id]["game_state"] = game_state
     blackjack_games[channel_id]["dealer_hand"] = dealer_hand
@@ -891,8 +898,8 @@ async def multi_bj(interaction: discord.Interaction):
 
     # 勝敗判定
     results = []
-    for player in players:
-        player_hand = game_state[player.id]["hand"]
+    for player in game["players"]:
+        player_hand = game["game_state"][player.id]["hand"]
         player_value = calculate_hand_value(player_hand)
 
         if player_value > 21:
@@ -1050,15 +1057,21 @@ async def stand(interaction: discord.Interaction):
 
         # 勝敗判定
         if dealer_value > 21 or player_value > dealer_value:
-            user_balances[user_id] += game["bet"] * 2
+            winnings = game["bet"] * 2
+            user_balances[user_id] += winnings
             result = "You Win!"
             color = discord.Color.green()
+            balance_change = f"+<:casino_tip2:1369628815709569044> {winnings}"
         elif player_value == dealer_value:
             result = "It's a Draw!"
             color = discord.Color.orange()
+            balance_change = "+<:casino_tip2:1369628815709569044> 0"
         else:
+            loss = game["bet"]
+            user_balances[user_id] -= loss
             result = "You Lose!"
             color = discord.Color.red()
+            balance_change = f"-<:casino_tip2:1369628815709569044> {loss}"
 
         # ゲームを終了
         del blackjack_games[channel_id]
@@ -1068,7 +1081,9 @@ async def stand(interaction: discord.Interaction):
             title=f"Blackjack - {result}",
             description=(
                 f"**Your Hand**: {', '.join(player_hand)} (Value: {player_value})\n"
-                f"**Dealer's Hand**: {', '.join(dealer_hand)} (Value: {dealer_value})"
+                f"**Dealer's Hand**: {', '.join(dealer_hand)} (Value: {dealer_value})\n\n"
+                f"**Balance Change**: {balance_change}\n"
+                f"**Current Balance**: <:casino_tip2:1369628815709569044> {user_balances[user_id]}"
             ),
             color=color
         )
@@ -1115,20 +1130,13 @@ async def double_down(interaction: discord.Interaction):
         await interaction.response.send_message("You can only double down immediately after the first two cards are dealt.", ephemeral=True)
         return
 
-    # 以下、シングルプレイヤーモードとマルチプレイヤーモードの処理...
-
     # シングルプレイヤーモードの場合
     if game["mode"] == "single":
         player_hand = game["player_hand"]
         bet = game["bet"]
 
         # 賭け金を倍にする
-        game["bet"] *= 2
-        if user_balances[user_id] < game["bet"]:
-            await interaction.response.send_message("You don't have enough coins to double your bet.", ephemeral=True)
-            return
-
-        user_balances[user_id] -= bet
+        bet *= 2
 
         # プレイヤーにカードを1枚配る
         card = game["deck"].pop()
@@ -1138,15 +1146,27 @@ async def double_down(interaction: discord.Interaction):
         # ダブルダウン後はフラグを無効化
         game["double_down_allowed"] = False
 
+        # ディーラーのターン
+        dealer_hand = game["dealer_hand"]
+        deck = game["deck"]
+        dealer_value = calculate_hand_value(dealer_hand)
+        while dealer_value < 17:
+            dealer_hand.append(deck.pop())
+            dealer_value = calculate_hand_value(dealer_hand)
+
+        player_hand = game["player_hand"]
+        player_value = calculate_hand_value(player_hand)
+
         # バースト判定
         if player_value > 21:
+            user_balances[user_id] -= bet
             del blackjack_games[channel_id]  # ゲームを終了
             embed = discord.Embed(
                 title="Blackjack - You Lose!",
                 description=(
                     f"**Your Hand**: {', '.join(player_hand)} (Value: {player_value})\n"
                     f"**Dealer's Hand**: {', '.join(game['dealer_hand'])} (Value: {calculate_hand_value(game['dealer_hand'])})\n\n"
-                    f"You went over 21 and lost <:casino_tip2:1369628815709569044> {game['bet']} coins.\n"
+                    f"You went over 21 and lost <:casino_tip2:1369628815709569044> {bet} coins.\n"
                     f"Your new balance is <:casino_tip2:1369628815709569044> {user_balances[user_id]} coins."
                 ),
                 color=discord.Color.red()
@@ -1154,14 +1174,37 @@ async def double_down(interaction: discord.Interaction):
             await interaction.response.send_message(embed=embed)
             return
 
-        # ディーラーの手持ちを表示
+        # 勝敗判定
+        if dealer_value > 21 or player_value > dealer_value:
+            winnings = bet * 2
+            user_balances[user_id] += winnings
+            result = "You Win!"
+            color = discord.Color.green()
+            balance_change = f"+<:casino_tip2:1369628815709569044> {winnings}"
+        elif player_value == dealer_value:
+            result = "It's a Draw!"
+            color = discord.Color.orange()
+            balance_change = "+<:casino_tip2:1369628815709569044> 0"
+        else:
+            loss = bet
+            user_balances[user_id] -= loss
+            result = "You Lose!"
+            color = discord.Color.red()
+            balance_change = f"-<:casino_tip2:1369628815709569044> {loss}"
+
+        # ゲームを終了
+        del blackjack_games[channel_id]
+
+        # 結果を表示
         embed = discord.Embed(
-            title="Your Blackjack Hand",
+            title=f"Blackjack - {result}",
             description=(
                 f"**Your Hand**: {', '.join(player_hand)} (Value: {player_value})\n"
-                f"**Dealer's Hand**: {game['dealer_hand'][0]}, ❓"
+                f"**Dealer's Hand**: {', '.join(dealer_hand)} (Value: {dealer_value})\n\n"
+                f"**Balance Change**: {balance_change}\n"
+                f"**Current Balance**: <:casino_tip2:1369628815709569044> {user_balances[user_id]}"
             ),
-            color=discord.Color.blue()
+            color=color
         )
         await interaction.response.send_message(embed=embed)
 
@@ -1184,8 +1227,6 @@ async def double_down(interaction: discord.Interaction):
         if user_balances[user_id] < player_state["bet"]:
             await interaction.response.send_message("You don't have enough coins to double your bet.", ephemeral=True)
             return
-
-        user_balances[user_id] -= bet
 
         # プレイヤーにカードを1枚配る
         card = game["deck"].pop()
